@@ -1,1 +1,3 @@
-recordtypes
+pandas
+matplotlib
+openpyxl
