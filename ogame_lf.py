@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 
 LIFEFORM = {1: "Human", 2: "Rock´tal", 3: "Mecha", 4: "Kaelesh"}
 
+
 TECHS = {
     "Production": {
         1: 3,
@@ -47,6 +48,11 @@ TECHS = {
         18: 4,
     },
 }
+
+
+LF_COLOR = {1: "g", 2: "r", 3: "b", 4: "m"}
+
+TECH_STYLE = {1: ":", 2: ""}
 
 
 EXCHANGE = [2.7, 1.7, 1]
@@ -291,13 +297,17 @@ class LifeformAmortisation:
 if __name__ == "__main__":
     max_dse = 1e12
     debug = False
-    for techs in TECHS.values():
-        for lifeform in LIFEFORM.values():
+    for tech_i, techs in enumerate(TECHS.values()):
+        for lf_i, lifeform in enumerate(LIFEFORM.values()):
             simulation = LifeformAmortisation(lifeform, techs, debug)
             plot = simulation.simulate(max_dse)
-            plt.plot(plot["cummulative_dse_cost"], plot["total_dse_bonus"])
+            plt.plot(
+                plot["cummulative_dse_cost"],
+                plot["total_dse_bonus"],
+                LF_COLOR[lf_i + 1] + TECH_STYLE[tech_i + 1],
+            )
     plt.xlabel("Investierte Deuterium Standard Einheiten (DSE)")
-    plt.ylabel("Bonus auf DSE Produktion")
+    plt.ylabel("Bonus auf DSE Einkommen")
     plt.legend(
         [
             selected_class + "-" + lifeform
