@@ -1,13 +1,17 @@
 """Simulating lifeform amortisation for miners"""
 import pandas as pd
 import matplotlib.pyplot as plt
+import argparse
+import math
 
 
 LIFEFORM = {1: "Human", 2: "Rock´tal", 3: "Mecha", 4: "Kaelesh"}
 
+CLASSES = {1: "Collector", 2: "Discoverer"}
+
 
 TECHS = {
-    "Production": {
+    1: {
         1: 3,
         2: 1,
         3: 2,
@@ -27,7 +31,7 @@ TECHS = {
         17: 1,
         18: 2,
     },
-    "Expedition": {
+    2: {
         1: 3,
         2: 1,
         3: 2,
@@ -57,9 +61,9 @@ TECH_STYLE = {1: ":", 2: ""}
 
 EXCHANGE = [2.7, 1.7, 1]
 
-EXPEDITIONS = True
 # Percentage of total resource income by expeditions
 EXPO_RES_PERCENTAGE = [0.444, 0.611, 0.207]
+# Values for low mines [0.646, 0.695, 0.416]
 # Percentage of total expedition income by ship findings
 EXPO_SHIP_PERCENTAGE = [0.117, 0.257, 0.189]
 
@@ -81,73 +85,27 @@ def calc_cost(base_value, increase_factor, level, offset=1):
     return base_value * (increase_factor ** (level - 1 + offset)) * (level + offset)
 
 
-def calc_bonus(entry, offset=0, tech_bonus=0):
-    bonus_list = [0, 0, 0, 0]
-    bonus_idx = 1
-    for idx, has_bonus in enumerate(
-        entry[["metal", "crystal", "deuterium", "expeditions"]]
-    ):
-        if has_bonus:
-            bonus_list[idx] = min_notna(
-                entry[f"bonus {bonus_idx} max"],
-                calc_cost(
-                    entry[f"bonus {bonus_idx} base value"],
-                    entry[f"bonus {bonus_idx} increase factor"],
-                    entry["level"],
-                    offset=offset,
-                )
-                / 100,
-            ) * (1 + tech_bonus if entry["Type"] != "Building" else 1)
-            if idx == 3:
-                # Expedition bonus applies to all resources
-                bonus_list = [bonus_list[3]] * len(bonus_list)
-            if f"bonus {bonus_idx+1} base value" in entry.index and pd.notna(
-                entry[f"bonus {bonus_idx+1} base value"]
-            ):
-                bonus_idx += 1
-    bonus_list = bonus_list[:3]
-    if EXPEDITIONS:
-        if entry["expeditions"]:
-            bonus_list = [
-                bonus * ratio for bonus, ratio in zip(bonus_list, EXPO_RES_PERCENTAGE)
-            ]
-            if "ships" in entry["Description EN"]:
-                bonus_list = [
-                    bonus * ratio
-                    for bonus, ratio in zip(bonus_list, EXPO_SHIP_PERCENTAGE)
-                ]
-            else:
-                bonus_list = [
-                    bonus * (1 - ratio)
-                    for bonus, ratio in zip(bonus_list, EXPO_SHIP_PERCENTAGE)
-                ]
-            # TODO Discoverer Boost Tech (Bonus = Boost * Normal Bonus)
-        else:
-            bonus_list = [
-                bonus * (1 - ratio)
-                for bonus, ratio in zip(bonus_list, EXPO_RES_PERCENTAGE)
-            ]
-    return calc_dse(bonus_list)
-
-
 def calc_tech_bonus(entry, offset=0):
     return min_notna(
-        entry["bonus 1 max"],
+        entry["bonus 1 max"] * 100,
         calc_cost(
             entry["bonus 1 base value"],
             entry["bonus 1 increase factor"],
             entry["level"],
             offset=offset,
-        )
-        / 100,
+        ),
     )
 
 
 class LifeformAmortisation:
-    def __init__(self, lifeform, techs, debug):
+    def __init__(self, lifeform, techs, debug, expeditions):
+        self.tech_bonus = 0
+        self.expo_bonus = 0
+        self.expeditions = expeditions
         self.lifeform = lifeform
         self.debug = debug
         self.data = pd.read_excel("lf_data.xlsx", sheet_name=1)
+        self.data["Name EN"] = self.data["Name EN"].apply(lambda x: x.strip())
         # Move high performance transformer tech bonus to column bonus 1
         self.data.loc[
             self.data["Name EN"] == "High-Performance Transformer",
@@ -208,47 +166,130 @@ class LifeformAmortisation:
         ].apply(calc_dse, axis=1)
         # Calculate dse bonus
         self.data["dse_base_bonus"] = self.data.apply(
-            lambda x: calc_bonus(x, offset=1), axis=1
+            lambda x: self.calc_bonus(x, offset=1), axis=1
         )
 
-    def step(self):
-        tech_bonus = 0
-        if self.data["technology bonus"].any():
-            tech_bonus = sum(
-                self.data[self.data["technology bonus"]].apply(calc_tech_bonus, axis=1)
+    def calc_bonus(self, entry, offset=0, tech_bonus=None, expo_bonus=None):
+        if not tech_bonus:
+            tech_bonus = self.tech_bonus
+        if not expo_bonus:
+            expo_bonus = self.expo_bonus
+        bonus_list = [0, 0, 0, 0]
+        bonus_idx = 1
+        for idx, has_bonus in enumerate(
+            entry[["metal", "crystal", "deuterium", "expeditions"]]
+        ):
+            if has_bonus:
+                bonus_list[idx] = (
+                    min_notna(
+                        entry[f"bonus {bonus_idx} max"] * 100,
+                        calc_cost(
+                            entry[f"bonus {bonus_idx} base value"],
+                            entry[f"bonus {bonus_idx} increase factor"],
+                            entry["level"],
+                            offset=offset,
+                        ),
+                    )
+                    * (1 + tech_bonus / 100 if entry["Type"] != "Building" else 1)
+                    * (1 + expo_bonus / 100 if entry["expeditions"] else 1)
+                )
+                if idx == 3:
+                    # Expedition bonus applies to all resources
+                    bonus_list = [bonus_list[3]] * len(bonus_list)
+                if f"bonus {bonus_idx+1} base value" in entry.index and pd.notna(
+                    entry[f"bonus {bonus_idx+1} base value"]
+                ):
+                    bonus_idx += 1
+        bonus_list = bonus_list[:3]
+        if self.expeditions:
+            if entry["expeditions"]:
+                bonus_list = [
+                    bonus * ratio
+                    for bonus, ratio in zip(bonus_list, EXPO_RES_PERCENTAGE)
+                ]
+                if "ships" in entry["Description EN"]:
+                    bonus_list = [
+                        bonus * ratio
+                        for bonus, ratio in zip(bonus_list, EXPO_SHIP_PERCENTAGE)
+                    ]
+                else:
+                    bonus_list = [
+                        bonus * (1 - ratio)
+                        for bonus, ratio in zip(bonus_list, EXPO_SHIP_PERCENTAGE)
+                    ]
+            else:
+                bonus_list = [
+                    bonus * (1 - ratio)
+                    for bonus, ratio in zip(bonus_list, EXPO_RES_PERCENTAGE)
+                ]
+        return calc_dse(bonus_list)
+
+    def calc_tech_amortisation(self):
+        for i, (applies_from, applies_to) in enumerate(
+            zip(
+                [
+                    self.data["technology bonus"],
+                    self.data["Name EN"] == "Kaelesh Discoverer Enhancement",
+                ],
+                [self.data["Type"] != "Building", self.data["expeditions"]],
             )
-        self.data["current_dse_bonus"] = self.data.apply(
-            lambda x: calc_bonus(x, tech_bonus=tech_bonus), axis=1
-        )
-        self.data["new_dse_bonus"] = self.data.apply(
-            lambda x: calc_bonus(x, tech_bonus=tech_bonus, offset=1), axis=1
-        )
-        if self.data["technology bonus"].any():
-            self.data.loc[self.data["technology bonus"], "new_dse_bonus"] = self.data[
-                self.data["technology bonus"]
+        ):
+            if not applies_from.any():
+                continue
+            # Tech bonus has no native bonus
+            if i == 0:
+                self.data.loc[applies_from, "new_dse_bonus"] = 0
+            self.data.loc[applies_from, "tech_dse_bonus"] = self.data[
+                applies_from
             ].apply(lambda x: calc_tech_bonus(x, offset=1), axis=1) - self.data[
-                self.data["technology bonus"]
+                applies_from
             ].apply(
-                lambda x: calc_tech_bonus(x), axis=1
+                calc_tech_bonus, axis=1
             )
-            tech = self.data[self.data["technology bonus"]].apply(
+            tech = self.data[applies_from].apply(
                 lambda x: self.data.apply(
-                    lambda y: calc_bonus(
-                        y, tech_bonus=(x["new_dse_bonus"] + tech_bonus)
+                    lambda y: self.calc_bonus(
+                        y,
+                        tech_bonus=(x["tech_dse_bonus"] + self.tech_bonus)
+                        if i == 0
+                        else self.tech_bonus,
+                        expo_bonus=(x["tech_dse_bonus"] + self.expo_bonus)
+                        if i == 1
+                        else self.expo_bonus,
                     ),
                     axis=1,
                 ),
                 axis=1,
             )
-            self.data.loc[self.data["technology bonus"], "new_dse_bonus"] = (
+            self.data.loc[applies_from, "new_dse_bonus"] += (
                 (tech - self.data["current_dse_bonus"])
                 .loc[
                     :,
-                    (self.data["Type"] != "Building")
-                    & (~self.data["technology bonus"]),
+                    applies_to & (~applies_from),
                 ]
                 .sum(axis=1)
             )
+
+    def recalculate_tech_bonus(self):
+        if self.data["technology bonus"].any():
+            self.tech_bonus = sum(
+                self.data[self.data["technology bonus"]].apply(calc_tech_bonus, axis=1)
+            )
+        if "Kaelesh Discoverer Enhancement" in self.data["Name EN"].values:
+            self.expo_bonus = calc_tech_bonus(
+                self.data[
+                    self.data["Name EN"] == "Kaelesh Discoverer Enhancement"
+                ].iloc[0]
+            ) * (1 + (self.tech_bonus / 100))
+
+    def step(self):
+        self.recalculate_tech_bonus()
+        self.data["current_dse_bonus"] = self.data.apply(self.calc_bonus, axis=1)
+        self.data["new_dse_bonus"] = self.data.apply(
+            lambda x: self.calc_bonus(x, offset=1), axis=1
+        )
+        self.calc_tech_amortisation()
+
         self.data["new_dse_cost"] = self.data.apply(
             lambda x: calc_cost(
                 x["dse_base_cost"], x["metal increase factor"], x["level"]
@@ -260,16 +301,16 @@ class LifeformAmortisation:
         )
         index = self.data["new_bonus_cost_ratio"].idxmin()
         self.data.loc[index, "level"] += 1
-        if self.data["technology bonus"].any():
-            tech_bonus = sum(
-                self.data[self.data["technology bonus"]].apply(calc_tech_bonus, axis=1)
-            )
-        self.data["current_dse_bonus"] = self.data.apply(
-            lambda x: calc_bonus(x, tech_bonus=tech_bonus), axis=1
-        )
+        self.recalculate_tech_bonus()
+        self.data["current_dse_bonus"] = self.data.apply(self.calc_bonus, axis=1)
         if debug:
             print(
-                f"Upgrading {self.data.loc[index, 'Name EN']} to level {self.data.loc[index, 'level']}, new bonus: {self.data['current_dse_bonus'].sum()}"
+                f"Upgrading {self.data.loc[index, 'Name EN']} to level {self.data.loc[index, 'level']}, new bonus: {round(self.data['current_dse_bonus'].sum(), 1)}%, cost: 10^{round(math.log10(self.data.loc[index, 'new_dse_cost']))} tech bonus: {round(self.tech_bonus, 1)}%, expo bonus: {round(self.expo_bonus, 1)}%"
+            )
+            input(
+                self.data.sort_values("new_bonus_cost_ratio")[
+                    ["Name EN", "level", "new_dse_bonus", "new_dse_cost"]
+                ]
             )
         return index
 
@@ -287,6 +328,7 @@ class LifeformAmortisation:
         plot["total_dse_bonus"] = total_dse_bonus
         print(
             self.lifeform,
+            CLASSES[2 if self.expeditions else 1],
             cummulative_dse_cost[-1],
             self.data["current_dse_bonus"].sum(),
         )
@@ -295,22 +337,37 @@ class LifeformAmortisation:
 
 
 if __name__ == "__main__":
-    max_dse = 1e12
-    debug = False
-    for tech_i, techs in enumerate(TECHS.values()):
-        for lf_i, lifeform in enumerate(LIFEFORM.values()):
-            simulation = LifeformAmortisation(lifeform, techs, debug)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-m", "--max-dse", type=int)
+    parser.add_argument("-d", "--debug", action="store_true")
+    parser.add_argument("-c", "--selected_class", type=int)
+    parser.add_argument("-l", "--lifeform", type=int)
+    parser.add_argument("-r", "--rebase", action="store_true")
+    args = parser.parse_args()
+    max_dse = 3e10
+    debug = args.debug if args.debug else False
+    for tech_i, techs in TECHS.items():
+        if args.selected_class and args.selected_class != tech_i:
+            continue
+        for lf_i, lifeform in LIFEFORM.items():
+            if args.lifeform and args.lifeform != lf_i:
+                continue
+            expeditions = CLASSES[tech_i] == "Discoverer"
+            simulation = LifeformAmortisation(lifeform, techs, debug, expeditions)
             plot = simulation.simulate(max_dse)
+            plot["total_dse_bonus"] /= (
+                calc_dse(EXPO_RES_PERCENTAGE) if args.rebase and expeditions else 1
+            )
             plt.plot(
                 plot["cummulative_dse_cost"],
                 plot["total_dse_bonus"],
-                LF_COLOR[lf_i + 1] + TECH_STYLE[tech_i + 1],
+                LF_COLOR[lf_i] + TECH_STYLE[tech_i],
             )
     plt.xlabel("Investierte Deuterium Standard Einheiten (DSE)")
-    plt.ylabel("Bonus auf DSE Einkommen")
+    plt.ylabel("Bonus auf DSE Einkommen in %")
     plt.legend(
         [
-            selected_class + "-" + lifeform
+            CLASSES[selected_class] + "-" + lifeform
             for selected_class in TECHS
             for lifeform in LIFEFORM.values()
         ],
