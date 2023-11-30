@@ -98,12 +98,13 @@ def calc_tech_bonus(entry, offset=0):
 
 
 class LifeformAmortisation:
-    def __init__(self, lifeform, techs, debug, expeditions):
+    def __init__(self, lifeform, techs, debug, expeditions, step_mode):
         self.tech_bonus = 0
         self.expo_bonus = 0
         self.expeditions = expeditions
         self.lifeform = lifeform
         self.debug = debug
+        self.step_mode = step_mode
         self.data = pd.read_excel("lf_data.xlsx", sheet_name=1)
         self.data["Name EN"] = self.data["Name EN"].apply(lambda x: x.strip())
         # Move high performance transformer tech bonus to column bonus 1
@@ -303,10 +304,11 @@ class LifeformAmortisation:
         self.data.loc[index, "level"] += 1
         self.recalculate_tech_bonus()
         self.data["current_dse_bonus"] = self.data.apply(self.calc_bonus, axis=1)
-        if debug:
+        if self.debug:
             print(
-                f"Upgrading {self.data.loc[index, 'Name EN']} to level {self.data.loc[index, 'level']}, new bonus: {round(self.data['current_dse_bonus'].sum(), 1)}%, cost: 10^{round(math.log10(self.data.loc[index, 'new_dse_cost']))} tech bonus: {round(self.tech_bonus, 1)}%, expo bonus: {round(self.expo_bonus, 1)}%"
+                f"Upgrading {self.data.loc[index, 'Name EN']} to level {self.data.loc[index, 'level']}, new bonus: {round(self.data['current_dse_bonus'].sum(), 2)}%, cost: 10^{round(math.log10(self.data.loc[index, 'new_dse_cost']))} tech bonus: {round(self.tech_bonus, 1)}%, expo bonus: {round(self.expo_bonus, 1)}%"
             )
+        if self.step_mode:    
             input(
                 self.data.sort_values("new_bonus_cost_ratio")[
                     ["Name EN", "level", "new_dse_bonus", "new_dse_cost"]
@@ -338,11 +340,13 @@ class LifeformAmortisation:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--max-dse", type=int)
-    parser.add_argument("-d", "--debug", action="store_true")
-    parser.add_argument("-c", "--selected_class", type=int)
-    parser.add_argument("-l", "--lifeform", type=int)
-    parser.add_argument("-r", "--rebase", action="store_true")
+    parser.add_argument("-m", "--max-dse", type=int, help="How many DSE to invest in a single planet")
+    parser.add_argument("-d", "--debug", action="store_true", help="Show step by step upgrading")
+    parser.add_argument("-c", "--selected_class", type=int, help="Select class: 1=Collector, 2=Discoverer")
+    parser.add_argument("-l", "--lifeform", type=int, help="Select lifeform: 1=Human, 2=Rock, 3=Mecha, 4=Kaelesh")
+    parser.add_argument("-r", "--rebase", action="store_true", help="Rebase all results based on Collector base production instead of class base production")
+    parser.add_argument("-s", "--step-mode", action="store_true", help="Requires input after every upgrading step")
+    parser.add_argument("-i", "--input", action="store_true", help="Manually input your levels and simulate next step")
     args = parser.parse_args()
     max_dse = 3e10
     debug = args.debug if args.debug else False
@@ -353,16 +357,22 @@ if __name__ == "__main__":
             if args.lifeform and args.lifeform != lf_i:
                 continue
             expeditions = CLASSES[tech_i] == "Discoverer"
-            simulation = LifeformAmortisation(lifeform, techs, debug, expeditions)
-            plot = simulation.simulate(max_dse)
-            plot["total_dse_bonus"] /= (
-                calc_dse(EXPO_RES_PERCENTAGE) if args.rebase and expeditions else 1
-            )
-            plt.plot(
-                plot["cummulative_dse_cost"],
-                plot["total_dse_bonus"],
-                LF_COLOR[lf_i] + TECH_STYLE[tech_i],
-            )
+            simulation = LifeformAmortisation(lifeform, techs, debug, expeditions, args.step_mode)
+            if not args.input:
+                plot = simulation.simulate(max_dse)
+                plot["total_dse_bonus"] /= (
+                    calc_dse(EXPO_RES_PERCENTAGE) if args.rebase and expeditions else 1
+                )
+                plt.plot(
+                    plot["cummulative_dse_cost"],
+                    plot["total_dse_bonus"],
+                    LF_COLOR[lf_i] + TECH_STYLE[tech_i],
+                )
+            else:
+                print("Enter levels")
+                simulation.data["level"] = simulation.data["Name EN"].apply(lambda x: input(f"{x}: ")).apply(lambda x: int(x) if x != "" else 0)
+                simulation.step()
+                print(simulation.data[["Name EN", "level"]])
     plt.xlabel("Investierte Deuterium Standard Einheiten (DSE)")
     plt.ylabel("Bonus auf DSE Einkommen in %")
     plt.legend(
