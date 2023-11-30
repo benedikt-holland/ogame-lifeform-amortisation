@@ -61,7 +61,7 @@ TECH_STYLE = {1: ":", 2: ""}
 
 EXCHANGE = [2.7, 1.7, 1]
 NUMBER_OF_PLANETS = 15
-MAX_DSE = 250e9
+MAX_DSE = 70e9
 
 # Percentage of total resource income by expeditions
 EXPO_RES_PERCENTAGE = [0.444, 0.611, 0.207]
@@ -163,6 +163,12 @@ class LifeformAmortisation:
         ] = False
         # Remove entries without bonuses
         self.data = self.data[self.data[resource_types].any(axis=1)]
+        # All planets all built up simultaneously
+        for column in [v for v in self.data.columns if "base cost" in v]:
+            self.data.loc[:, column] *= NUMBER_OF_PLANETS
+        # The effects of techs are globally added
+        for column in [v for v in self.data.columns if "base value" in v]:
+            self.data.loc[self.data["Type"] != "Building", column] *= NUMBER_OF_PLANETS
         # Calculate dse base cost
         self.data["dse_base_cost"] = self.data[
             ["metal base cost", "crystal base cost", "deut base cost"]
@@ -306,7 +312,7 @@ class LifeformAmortisation:
             print(
                 f"Upgrading {self.data.loc[index, 'Name EN']} to level {self.data.loc[index, 'level']}, new bonus: {round(self.data['current_dse_bonus'].sum(), 2)}%, cost: 10^{round(math.log10(self.data.loc[index, 'new_dse_cost']))} tech bonus: {round(self.tech_bonus, 1)}%, expo bonus: {round(self.expo_bonus, 1)}%"
             )
-        if self.step_mode:    
+        if self.step_mode:
             input(
                 self.data.sort_values("new_bonus_cost_ratio")[
                     ["Name EN", "level", "new_dse_bonus", "new_dse_cost"]
@@ -338,13 +344,42 @@ class LifeformAmortisation:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--max-dse", type=int, help="How many DSE to invest in a single planet")
-    parser.add_argument("-d", "--debug", action="store_true", help="Show step by step upgrading")
-    parser.add_argument("-c", "--selected_class", type=int, help="Select class: 1=Collector, 2=Discoverer")
-    parser.add_argument("-l", "--lifeform", type=int, help="Select lifeform: 1=Human, 2=Rock, 3=Mecha, 4=Kaelesh")
-    parser.add_argument("-r", "--rebase", action="store_true", help="Rebase all results based on Collector base production instead of class base production")
-    parser.add_argument("-s", "--step-mode", action="store_true", help="Requires input after every upgrading step")
-    parser.add_argument("-i", "--input", action="store_true", help="Manually input your levels and simulate next step")
+    parser.add_argument(
+        "-m", "--max-dse", type=int, help="How many DSE to invest in a single planet"
+    )
+    parser.add_argument(
+        "-d", "--debug", action="store_true", help="Show step by step upgrading"
+    )
+    parser.add_argument(
+        "-c",
+        "--selected_class",
+        type=int,
+        help="Select class: 1=Collector, 2=Discoverer",
+    )
+    parser.add_argument(
+        "-l",
+        "--lifeform",
+        type=int,
+        help="Select lifeform: 1=Human, 2=Rock, 3=Mecha, 4=Kaelesh",
+    )
+    parser.add_argument(
+        "-r",
+        "--rebase",
+        action="store_true",
+        help="Rebase all results based on Collector base production instead of class base production",
+    )
+    parser.add_argument(
+        "-s",
+        "--step-mode",
+        action="store_true",
+        help="Requires input after every upgrading step",
+    )
+    parser.add_argument(
+        "-i",
+        "--input",
+        action="store_true",
+        help="Manually input your levels and simulate next step",
+    )
     args = parser.parse_args()
     max_dse = args.max_dse if args.max_dse else MAX_DSE
     debug = args.debug if args.debug else False
@@ -357,14 +392,23 @@ if __name__ == "__main__":
             if args.lifeform and args.lifeform != lf_i:
                 continue
             expeditions = CLASSES[tech_i] == "Discoverer"
-            simulation = LifeformAmortisation(lifeform, techs, debug, expeditions, args.step_mode)
+            simulation = LifeformAmortisation(
+                lifeform, techs, debug, expeditions, args.step_mode
+            )
             if args.input:
                 if levels is None:
-                    levels = simulation.data["Name EN"].apply(lambda x: input(f"{x}: ")).apply(lambda x: int(x) if x != "" else 0)
+                    levels = (
+                        simulation.data["Name EN"]
+                        .apply(lambda x: input(f"{x}: "))
+                        .apply(lambda x: int(x) if x != "" else 0)
+                    )
                 simulation.data["level"] = levels
                 simulation.data["level"].fillna(0, inplace=True)
             plot = simulation.simulate(max_dse)
-            plot["total_dse_bonus"] /= ((calc_dse(EXPO_RES_PERCENTAGE)/3) if args.rebase and expeditions else 1
+            plot["total_dse_bonus"] /= (
+                (1 - calc_dse(EXPO_RES_PERCENTAGE) / 3)
+                if args.rebase and expeditions
+                else 1
             )
             plt.plot(
                 plot["cummulative_dse_cost"],
@@ -374,7 +418,8 @@ if __name__ == "__main__":
             legend.append(f"{CLASSES[tech_i]}-{lifeform}")
     plt.xlabel("Investierte Deuterium Standard Einheiten (DSE)")
     plt.ylabel("Bonus auf DSE Einkommen in %")
-    plt.legend(legend,
+    plt.legend(
+        legend,
         loc="lower right",
     )
     plt.show()
