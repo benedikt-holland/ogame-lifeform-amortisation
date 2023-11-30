@@ -385,41 +385,21 @@ if __name__ == "__main__":
     debug = args.debug if args.debug else False
     levels = None
     legend = []
-    for tech_i, techs in TECHS.items():
-        if args.selected_class and args.selected_class != tech_i:
-            continue
-        for lf_i, lifeform in LIFEFORM.items():
-            if args.lifeform and args.lifeform != lf_i:
-                continue
-            expeditions = CLASSES[tech_i] == "Discoverer"
-            simulation = LifeformAmortisation(
-                lifeform, techs, debug, expeditions, args.step_mode
-            )
-            if args.input:
-                if levels is None:
-                    levels = (
-                        simulation.data["Name EN"]
-                        .apply(lambda x: input(f"{x}: "))
-                        .apply(lambda x: int(x) if x != "" else 0)
-                    )
-                simulation.data["level"] = levels
-                simulation.data["level"].fillna(0, inplace=True)
-            plot = simulation.simulate(max_dse)
-            plot["total_dse_bonus"] /= (
-                (1 - calc_dse(EXPO_RES_PERCENTAGE) / 3)
-                if args.rebase and expeditions
-                else 1
-            )
-            plt.plot(
-                plot["cummulative_dse_cost"],
-                plot["total_dse_bonus"],
-                LF_COLOR[lf_i] + TECH_STYLE[tech_i],
-            )
-            legend.append(f"{CLASSES[tech_i]}-{lifeform}")
-    plt.xlabel("Investierte Deuterium Standard Einheiten (DSE)")
-    plt.ylabel("Bonus auf DSE Einkommen in %")
-    plt.legend(
-        legend,
-        loc="lower right",
-    )
+    human_graph = []
+    mecha_graph = []
+    steps = 100
+    for i in range(steps+1):
+        EXPO_RES_PERCENTAGE = [i/steps] * 3
+        human = LifeformAmortisation(LIFEFORM[1], TECHS[2], False, True, False).simulate(max_dse)["total_dse_bonus"].iloc[-1]
+        rock = LifeformAmortisation(LIFEFORM[2], TECHS[2], False, True, False).simulate(max_dse)["total_dse_bonus"].iloc[-1]
+        mecha = LifeformAmortisation(LIFEFORM[3], TECHS[2], False, True, False).simulate(max_dse)["total_dse_bonus"].iloc[-1]
+        human_graph.append(human - rock)
+        mecha_graph.append(mecha - rock)
+    plt.plot(human_graph)
+    plt.plot(mecha_graph)
+    plt.legend(["Menschen", "Mecha"], loc="lower right")
+    plt.xlabel("Anteil Ressourcen gewonnen aus Expeditionen in %")
+    plt.ylabel("Delta %-DSE Bonus zu Rocks")
+    plt.title(f"Investition von {int(max_dse/1e9)} MRD DSE in {NUMBER_OF_PLANETS} Planeten")
+    plt.axhline(color='r')
     plt.show()
