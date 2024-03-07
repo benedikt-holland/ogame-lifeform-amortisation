@@ -154,13 +154,16 @@ class LifeformAmortisation:
         ] *= 0.25
         # Metropolis description does not include 'technology bonus'
         self.data.loc[self.data["Name EN"] == "Metropolis", "technology bonus"] = True
-        # These techs do notsignificantly impact ressource gain on expeditions
+        # These techs do not significantly impact ressource gain on expeditions
         self.data.loc[
             self.data["Name EN"].isin(
                 ["Psionic Network", "Telekinetic Drive", "Gravitation Sensors"]
             ),
             "expeditions",
         ] = False
+        # Kaelesh Cloning Laboratory has tech bonus only for kaelesh techs
+        self.data.loc[self.data["Name EN"] == "Cloning Laboratory", "technology bonus"] = True
+        self.data.loc[self.data["Name EN"] == "Cloning Laboratory", "bonus 1 base value"] = 0.25
         # Remove entries without bonuses
         self.data = self.data[self.data[resource_types].any(axis=1)]
         # All planets all built up simultaneously
@@ -195,7 +198,7 @@ class LifeformAmortisation:
                             offset=offset,
                         ),
                     )
-                    * (1 + tech_bonus / 100 if entry["Type"] != "Building" else 1)
+                    * (1 + tech_bonus / 100 if entry["Type"] != "Building" and (self.lifeform != 4 or entry["Lifeform"] == "Kaelesh") else 1)
                     * (1 + expo_bonus / 100 if entry["expeditions"] else 1)
                 )
                 if idx == 3:
