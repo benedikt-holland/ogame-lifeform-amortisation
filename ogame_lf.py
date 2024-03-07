@@ -390,17 +390,21 @@ if __name__ == "__main__":
     legend = []
     human_graph = []
     mecha_graph = []
+    kaelesh_graph = []
     steps = 100
     for i in range(steps+1):
         EXPO_RES_PERCENTAGE = [i/steps] * 3
         human = LifeformAmortisation(LIFEFORM[1], TECHS[2], False, True, False).simulate(max_dse)["total_dse_bonus"].iloc[-1]
         rock = LifeformAmortisation(LIFEFORM[2], TECHS[2], False, True, False).simulate(max_dse)["total_dse_bonus"].iloc[-1]
         mecha = LifeformAmortisation(LIFEFORM[3], TECHS[2], False, True, False).simulate(max_dse)["total_dse_bonus"].iloc[-1]
+        kaelesh = LifeformAmortisation(LIFEFORM[4], TECHS[2], False, True, False).simulate(max_dse)["total_dse_bonus"].iloc[-1]
         human_graph.append(human - rock)
         mecha_graph.append(mecha - rock)
+        kaelesh_graph.append(kaelesh - rock)
     plt.plot(human_graph)
     plt.plot(mecha_graph)
-    plt.legend(["Menschen", "Mecha"], loc="lower right")
+    plt.plot(kaelesh_graph)
+    plt.legend(["Menschen", "Mecha", "Kaelesh"], loc="lower right")
     plt.xlabel("Anteil Ressourcen gewonnen aus Expeditionen in %")
     plt.ylabel("Delta %-DSE Bonus zu Rocks")
     plt.title(f"Investition von {int(max_dse/1e9)} MRD DSE in {NUMBER_OF_PLANETS} Planeten")
